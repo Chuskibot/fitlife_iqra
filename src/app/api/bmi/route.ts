@@ -14,8 +14,16 @@ const bmiRecordSchema = z.object({
   notes: z.string().optional(),
 });
 
+type BMIData = {
+  height: number;
+  weight: number;
+  age: number;
+  gender: string;
+  userId: string;
+};
+
 // GET all BMI records for the authenticated user
-export async function GET() {
+export async function GET(request: Request): Promise<Response> {
   const session = await getServerSession(authOptions);
   
   if (!session?.user) {
@@ -35,7 +43,7 @@ export async function GET() {
       .toArray();
     
     return NextResponse.json(bmiRecords);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error retrieving BMI records:", error);
     return NextResponse.json(
       { error: "Failed to retrieve BMI records" },
@@ -45,7 +53,7 @@ export async function GET() {
 }
 
 // POST a new BMI record
-export async function POST(request: Request) {
+export async function POST(request: Request): Promise<Response> {
   const session = await getServerSession(authOptions);
   
   if (!session?.user) {
@@ -53,8 +61,8 @@ export async function POST(request: Request) {
   }
   
   try {
-    const body = await request.json();
-    const validation = bmiRecordSchema.safeParse(body);
+    const data: BMIData = await request.json();
+    const validation = bmiRecordSchema.safeParse(data);
     
     if (!validation.success) {
       return NextResponse.json(
@@ -81,7 +89,7 @@ export async function POST(request: Request) {
       message: "BMI record saved successfully",
       recordId: result.insertedId,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error saving BMI record:", error);
     return NextResponse.json(
       { error: "Failed to save BMI record" },

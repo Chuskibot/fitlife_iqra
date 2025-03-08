@@ -122,40 +122,25 @@ export default function BMICalculator() {
   }, [records, heightUnit, weightUnit]);
 
   const calculateBMI = () => {
-    let bmiValue: number;
-    let heightInMeters: number;
-    let weightInKg: number;
-
-    // Convert height to meters for calculation
-    if (heightUnit === "cm") {
-      heightInMeters = height / 100;
-    } else {
-      // Convert feet to meters
-      heightInMeters = height * 0.3048;
+    if (!height || !weight) {
+      toast.error("Please enter both height and weight");
+      return;
     }
-
-    // Convert weight to kg for calculation
-    if (weightUnit === "kg") {
-      weightInKg = weight;
-    } else {
-      // Convert pounds to kg
-      weightInKg = weight * 0.453592;
-    }
-
-    bmiValue = weightInKg / (heightInMeters * heightInMeters);
-    const newBmi = parseFloat(bmiValue.toFixed(1));
-    setBmi(newBmi);
+    
+    const heightInMeters = height / 100;
+    const bmiValue = weight / (heightInMeters * heightInMeters);
+    setBmi(bmiValue);
 
     // Determine BMI category
-    if (newBmi < 18.5) {
+    if (bmiValue < 18.5) {
       setBmiCategory("Underweight");
-    } else if (newBmi >= 18.5 && newBmi < 25) {
+    } else if (bmiValue >= 18.5 && bmiValue < 25) {
       setBmiCategory("Normal weight");
-    } else if (newBmi >= 25 && newBmi < 30) {
+    } else if (bmiValue >= 25 && bmiValue < 30) {
       setBmiCategory("Overweight");
-    } else if (newBmi >= 30 && newBmi < 35) {
+    } else if (bmiValue >= 30 && bmiValue < 35) {
       setBmiCategory("Obesity Class I");
-    } else if (newBmi >= 35 && newBmi < 40) {
+    } else if (bmiValue >= 35 && bmiValue < 40) {
       setBmiCategory("Obesity Class II");
     } else {
       setBmiCategory("Obesity Class III");
@@ -164,20 +149,20 @@ export default function BMICalculator() {
     // Calculate comparison with previous BMI if records exist
     if (records && records.length > 0) {
       const previousBmi = records[0].bmi;
-      const difference = parseFloat((newBmi - previousBmi).toFixed(1));
+      const difference = parseFloat((bmiValue - previousBmi).toFixed(1));
       
       // Determine if health is improving based on BMI category changes
       let isImproving = false;
       
       if (previousBmi < 18.5) {
         // If previously underweight, improvement means getting closer to normal range
-        isImproving = difference > 0 && newBmi <= 25;
+        isImproving = difference > 0 && bmiValue <= 25;
       } else if (previousBmi >= 25) {
         // If previously overweight/obese, improvement means getting closer to normal range
         isImproving = difference < 0;
       } else {
         // If previously in normal range, improvement means staying in that range
-        isImproving = newBmi >= 18.5 && newBmi < 25;
+        isImproving = bmiValue >= 18.5 && bmiValue < 25;
       }
       
       setBmiComparison({
