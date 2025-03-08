@@ -1,24 +1,31 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { connectToDatabase } from "@/lib/db";
-import { FitnessActivity } from "@/models/fitness-activity";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { z } from "zod";
+import { Session } from "next-auth";
+import { ObjectId } from "mongodb";
 
-// Schema for validating fitness activity request
-const fitnessActivitySchema = z.object({
-  activityType: z.enum(["cardio", "strength", "flexibility", "sports", "other"]),
-  name: z.string().min(1, "Activity name is required"),
-  duration: z.number().min(1, "Duration must be at least 1 minute"),
-  calories: z.number().min(0, "Calories must be a positive number"),
-  notes: z.string().optional(),
-  completed: z.boolean(),
-  date: z.string().transform(val => new Date(val)),
-});
+interface ExtendedSession extends Session {
+  user: {
+    id: string;
+    email?: string | null;
+    name?: string | null;
+  };
+}
 
-// GET all fitness activities for the authenticated user
-export async function GET(request: Request) {
-  const session = await getServerSession(authOptions);
+interface FitnessActivity {
+  userId: string;
+  type: string;
+  duration: number;
+  intensity: "low" | "medium" | "high";
+  caloriesBurned: number;
+  date: Date;
+  notes?: string;
+}
+
+// GET fitness activities for the authenticated user
+export async function GET(): Promise<Response> {
+  const session = await getServerSession(authOptions) as ExtendedSession | null;
   
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -26,18 +33,17 @@ export async function GET(request: Request) {
   
   try {
     const { db } = await connectToDatabase();
-    const fitnessCollection = db.collection("fitness_activities");
+    const activitiesCollection = db.collection("fitness_activities");
     
-    // Access user ID from the session
-    const userId = (session as any).user.id;
+    const userId = session.user.id;
     
-    const fitnessActivities = await fitnessCollection
+    const activities = await activitiesCollection
       .find({ userId })
       .sort({ date: -1 })
       .toArray();
     
-    return NextResponse.json(fitnessActivities);
-  } catch (error) {
+    return NextResponse.json(activities);
+  } catch (error: unknown) {
     console.error("Error retrieving fitness activities:", error);
     return NextResponse.json(
       { error: "Failed to retrieve fitness activities" },
@@ -47,43 +53,33 @@ export async function GET(request: Request) {
 }
 
 // POST a new fitness activity
-export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
+export async function POST(request: Request): Promise<Response> {
+  const session = await getServerSession(authOptions) as ExtendedSession | null;
   
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   
   try {
-    const body = await request.json();
-    const validation = fitnessActivitySchema.safeParse(body);
-    
-    if (!validation.success) {
-      return NextResponse.json(
-        { error: validation.error.errors[0].message },
-        { status: 400 }
-      );
-    }
-    
+    const data = await request.json();
     const { db } = await connectToDatabase();
-    const fitnessCollection = db.collection("fitness_activities");
+    const activitiesCollection = db.collection("fitness_activities");
     
-    // Access user ID from the session
-    const userId = (session as any).user.id;
+    const userId = session.user.id;
     
-    const fitnessActivity: FitnessActivity = {
-      ...validation.data,
+    const activity: FitnessActivity = {
+      ...data,
       userId,
-      date: new Date(validation.data.date),
+      date: new Date(data.date || new Date()),
     };
     
-    const result = await fitnessCollection.insertOne(fitnessActivity);
+    const result = await activitiesCollection.insertOne(activity);
     
     return NextResponse.json({
       message: "Fitness activity saved successfully",
       activityId: result.insertedId,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error saving fitness activity:", error);
     return NextResponse.json(
       { error: "Failed to save fitness activity" },
@@ -93,18 +89,18 @@ export async function POST(request: Request) {
 }
 
 // DELETE a fitness activity
-export async function DELETE(request: Request) {
-  const session = await getServerSession(authOptions);
+export async function DELETE(request: Request): Promise<Response> {
+  const session = await getServerSession(authOptions) as ExtendedSession | null;
   
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   
   try {
-    const url = new URL(request.url);
-    const id = url.searchParams.get("id");
+    const { searchParams } = new URL(request.url);
+    const activityId = searchParams.get("id");
     
-    if (!id) {
+    if (!activityId) {
       return NextResponse.json(
         { error: "Activity ID is required" },
         { status: 400 }
@@ -112,21 +108,16 @@ export async function DELETE(request: Request) {
     }
     
     const { db } = await connectToDatabase();
-    const fitnessCollection = db.collection("fitness_activities");
+    const activitiesCollection = db.collection("fitness_activities");
     
-    // Access user ID from the session
-    const userId = (session as any).user.id;
+    const userId = session.user.id;
+    const _id = new ObjectId(activityId);
     
-    // Ensure the user only deletes their own activities
-    const { ObjectId } = require("mongodb");
-    const result = await fitnessCollection.deleteOne({
-      _id: new ObjectId(id),
-      userId,
-    });
+    const result = await activitiesCollection.deleteOne({ _id, userId });
     
     if (result.deletedCount === 0) {
       return NextResponse.json(
-        { error: "Activity not found or not authorized to delete" },
+        { error: "Activity not found or unauthorized" },
         { status: 404 }
       );
     }
@@ -134,7 +125,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({
       message: "Fitness activity deleted successfully",
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error deleting fitness activity:", error);
     return NextResponse.json(
       { error: "Failed to delete fitness activity" },

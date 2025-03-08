@@ -1,32 +1,32 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { connectToDatabase } from "@/lib/db";
-import { DietPlan, Meal } from "@/models/diet-plan";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { z } from "zod";
+import { Session } from "next-auth";
 
-// Schema for validating meal
-const mealSchema = z.object({
-  name: z.string().min(1, "Meal name is required"),
-  description: z.string(),
-  calories: z.number().min(0, "Calories must be a positive number"),
-  protein: z.number().min(0, "Protein must be a positive number"),
-  carbs: z.number().min(0, "Carbs must be a positive number"),
-  fats: z.number().min(0, "Fats must be a positive number"),
-});
+interface ExtendedSession extends Session {
+  user: {
+    id: string;
+    email?: string | null;
+    name?: string | null;
+  };
+}
 
-// Schema for validating diet plan request
-const dietPlanSchema = z.object({
-  name: z.string().min(1, "Diet plan name is required"),
-  goalType: z.enum(["weight_loss", "weight_gain", "maintenance"]),
-  targetCalories: z.number().min(500, "Target calories must be at least 500"),
-  meals: z.array(mealSchema).min(1, "At least one meal is required"),
-  notes: z.string().optional(),
-});
+interface DietPlan {
+  userId: string;
+  meals: {
+    breakfast: string[];
+    lunch: string[];
+    dinner: string[];
+    snacks: string[];
+  };
+  calories: number;
+  date: Date;
+}
 
-// GET all diet plans for the authenticated user
-export async function GET() {
-  const session = await getServerSession(authOptions);
+// GET diet plans for the authenticated user
+export async function GET(request: Request): Promise<Response> {
+  const session = await getServerSession(authOptions) as ExtendedSession | null;
   
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -36,8 +36,7 @@ export async function GET() {
     const { db } = await connectToDatabase();
     const dietCollection = db.collection("diet_plans");
     
-    // Access user ID from the session (from the JWT token)
-    const userId = (session as any).user.id;
+    const userId = session.user.id;
     
     const dietPlans = await dietCollection
       .find({ userId })
@@ -45,7 +44,7 @@ export async function GET() {
       .toArray();
     
     return NextResponse.json(dietPlans);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error retrieving diet plans:", error);
     return NextResponse.json(
       { error: "Failed to retrieve diet plans" },
@@ -55,32 +54,22 @@ export async function GET() {
 }
 
 // POST a new diet plan
-export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
+export async function POST(request: Request): Promise<Response> {
+  const session = await getServerSession(authOptions) as ExtendedSession | null;
   
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   
   try {
-    const body = await request.json();
-    const validation = dietPlanSchema.safeParse(body);
-    
-    if (!validation.success) {
-      return NextResponse.json(
-        { error: validation.error.errors[0].message },
-        { status: 400 }
-      );
-    }
-    
+    const data = await request.json();
     const { db } = await connectToDatabase();
     const dietCollection = db.collection("diet_plans");
     
-    // Access user ID from the session (from the JWT token)
-    const userId = (session as any).user.id;
+    const userId = session.user.id;
     
     const dietPlan: DietPlan = {
-      ...validation.data,
+      ...data,
       userId,
       date: new Date(),
     };
@@ -91,7 +80,7 @@ export async function POST(request: Request) {
       message: "Diet plan saved successfully",
       planId: result.insertedId,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error saving diet plan:", error);
     return NextResponse.json(
       { error: "Failed to save diet plan" },

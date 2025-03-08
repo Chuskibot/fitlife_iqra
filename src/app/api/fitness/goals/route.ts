@@ -1,23 +1,31 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { connectToDatabase } from "@/lib/db";
-import { FitnessGoal } from "@/models/fitness-activity";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { z } from "zod";
+import { Session } from "next-auth";
+import { ObjectId } from "mongodb";
 
-// Schema for validating fitness goal request
-const fitnessGoalSchema = z.object({
-  name: z.string().min(1, "Goal name is required"),
-  target: z.number().min(1, "Target must be a positive number"),
-  unit: z.string().min(1, "Unit is required"),
-  deadline: z.string().transform(val => new Date(val)),
-  progress: z.number().default(0),
-  completed: z.boolean().default(false),
-});
+interface ExtendedSession extends Session {
+  user: {
+    id: string;
+    email?: string | null;
+    name?: string | null;
+  };
+}
 
-// GET all fitness goals for the authenticated user
-export async function GET(request: Request) {
-  const session = await getServerSession(authOptions);
+interface FitnessGoal {
+  userId: string;
+  type: string;
+  target: number;
+  deadline: Date;
+  progress: number;
+  status: "active" | "completed" | "abandoned";
+  notes?: string;
+}
+
+// GET fitness goals for the authenticated user
+export async function GET(): Promise<Response> {
+  const session = await getServerSession(authOptions) as ExtendedSession | null;
   
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -27,16 +35,15 @@ export async function GET(request: Request) {
     const { db } = await connectToDatabase();
     const goalsCollection = db.collection("fitness_goals");
     
-    // Access user ID from the session
-    const userId = (session as any).user.id;
+    const userId = session.user.id;
     
-    const fitnessGoals = await goalsCollection
+    const goals = await goalsCollection
       .find({ userId })
       .sort({ deadline: 1 })
       .toArray();
     
-    return NextResponse.json(fitnessGoals);
-  } catch (error) {
+    return NextResponse.json(goals);
+  } catch (error: unknown) {
     console.error("Error retrieving fitness goals:", error);
     return NextResponse.json(
       { error: "Failed to retrieve fitness goals" },
@@ -46,46 +53,35 @@ export async function GET(request: Request) {
 }
 
 // POST a new fitness goal
-export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
+export async function POST(request: Request): Promise<Response> {
+  const session = await getServerSession(authOptions) as ExtendedSession | null;
   
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   
   try {
-    const body = await request.json();
-    const validation = fitnessGoalSchema.safeParse(body);
-    
-    if (!validation.success) {
-      return NextResponse.json(
-        { error: validation.error.errors[0].message },
-        { status: 400 }
-      );
-    }
-    
+    const data = await request.json();
     const { db } = await connectToDatabase();
     const goalsCollection = db.collection("fitness_goals");
     
-    // Access user ID from the session
-    const userId = (session as any).user.id;
+    const userId = session.user.id;
     
-    const fitnessGoal: FitnessGoal = {
-      ...validation.data,
+    const goal: FitnessGoal = {
+      ...data,
       userId,
-      deadline: new Date(validation.data.deadline),
-      progress: validation.data.progress || 0,
-      completed: validation.data.completed || false,
-      createdAt: new Date(),
+      progress: 0,
+      status: "active",
+      deadline: new Date(data.deadline),
     };
     
-    const result = await goalsCollection.insertOne(fitnessGoal);
+    const result = await goalsCollection.insertOne(goal);
     
     return NextResponse.json({
       message: "Fitness goal saved successfully",
       goalId: result.insertedId,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error saving fitness goal:", error);
     return NextResponse.json(
       { error: "Failed to save fitness goal" },
@@ -94,45 +90,30 @@ export async function POST(request: Request) {
   }
 }
 
-// PUT update a fitness goal (for progress updates)
-export async function PUT(request: Request) {
-  const session = await getServerSession(authOptions);
+// PUT update a fitness goal
+export async function PUT(request: Request): Promise<Response> {
+  const session = await getServerSession(authOptions) as ExtendedSession | null;
   
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   
   try {
-    const body = await request.json();
-    
-    if (!body.id) {
-      return NextResponse.json(
-        { error: "Goal ID is required" },
-        { status: 400 }
-      );
-    }
-    
+    const data = await request.json();
     const { db } = await connectToDatabase();
     const goalsCollection = db.collection("fitness_goals");
     
-    // Access user ID from the session
-    const userId = (session as any).user.id;
+    const userId = session.user.id;
+    const goalId = new ObjectId(data.goalId);
     
-    // Create update object with only the fields that can be updated
-    const updateFields: any = {};
-    if (body.progress !== undefined) updateFields.progress = body.progress;
-    if (body.completed !== undefined) updateFields.completed = body.completed;
-    
-    // Ensure the user only updates their own goals
-    const { ObjectId } = require("mongodb");
     const result = await goalsCollection.updateOne(
-      { _id: new ObjectId(body.id), userId },
-      { $set: updateFields }
+      { _id: goalId, userId },
+      { $set: { progress: data.progress, status: data.status } }
     );
     
     if (result.matchedCount === 0) {
       return NextResponse.json(
-        { error: "Goal not found or not authorized to update" },
+        { error: "Goal not found or unauthorized" },
         { status: 404 }
       );
     }
@@ -140,7 +121,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({
       message: "Fitness goal updated successfully",
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error updating fitness goal:", error);
     return NextResponse.json(
       { error: "Failed to update fitness goal" },
