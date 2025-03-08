@@ -4,6 +4,15 @@ import { connectToDatabase } from "@/lib/db";
 import { BMIRecord } from "@/models/bmi-record";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { z } from "zod";
+import { Session } from "next-auth";
+
+interface ExtendedSession extends Session {
+  user: {
+    id: string;
+    email?: string | null;
+    name?: string | null;
+  };
+}
 
 // Schema for validating BMI record request
 const bmiRecordSchema = z.object({
@@ -24,7 +33,7 @@ type BMIData = {
 
 // GET all BMI records for the authenticated user
 export async function GET(request: Request): Promise<Response> {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions) as ExtendedSession | null;
   
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -34,8 +43,7 @@ export async function GET(request: Request): Promise<Response> {
     const { db } = await connectToDatabase();
     const bmiCollection = db.collection("bmi_records");
     
-    // Access user ID from the session (from the JWT token)
-    const userId = (session as any).user.id;
+    const userId = session.user.id;
     
     const bmiRecords = await bmiCollection
       .find({ userId })
@@ -54,7 +62,7 @@ export async function GET(request: Request): Promise<Response> {
 
 // POST a new BMI record
 export async function POST(request: Request): Promise<Response> {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions) as ExtendedSession | null;
   
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -74,8 +82,7 @@ export async function POST(request: Request): Promise<Response> {
     const { db } = await connectToDatabase();
     const bmiCollection = db.collection("bmi_records");
     
-    // Access user ID from the session (from the JWT token)
-    const userId = (session as any).user.id;
+    const userId = session.user.id;
     
     const bmiRecord: BMIRecord = {
       ...validation.data,

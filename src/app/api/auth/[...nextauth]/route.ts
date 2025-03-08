@@ -1,6 +1,7 @@
 import { NextAuthOptions } from "next-auth";
 import { JWT } from "next-auth/jwt";
 import NextAuth from "next-auth/next";
+import { Session } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import GithubProvider from "next-auth/providers/github";
@@ -18,7 +19,20 @@ type User = {
   id: string;
   email: string;
   password: string;
+  name?: string;
+  image?: string;
+  role?: string;
 };
+
+interface ExtendedSession extends Session {
+  user: {
+    id: string;
+    role: string;
+    email?: string | null;
+    name?: string | null;
+    image?: string | null;
+  };
+}
 
 export const authOptions: NextAuthOptions = {
   adapter: MongoDBAdapter(clientPromise),
@@ -95,10 +109,10 @@ export const authOptions: NextAuthOptions = {
       }
       return token;
     },
-    async session({ session, token }: { session: any; token: JWT }) {
+    async session({ session, token }: { session: ExtendedSession; token: JWT }): Promise<ExtendedSession> {
       if (session.user) {
-        session.user.id = token.id;
-        session.user.role = token.role;
+        session.user.id = token.id as string;
+        session.user.role = token.role as string;
       }
       return session;
     },
