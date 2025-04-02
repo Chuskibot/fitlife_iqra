@@ -13,7 +13,7 @@ A modern fitness tracking application built with Next.js, featuring BMI calculat
 
 ## Tech Stack
 
-- Next.js 13+
+- Next.js 15
 - React 18
 - TypeScript
 - Tailwind CSS
